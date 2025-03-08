@@ -1,21 +1,38 @@
 const rl = @import("raylib");
+const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 // FIXME: try to use a packed struct and treat all objects as same
 // -- this will require Vecs to be pointers
 const Player = struct { position: rl.Vector2, speed: rl.Vector2, size: rl.Vector2 };
 const Ball = struct { position: rl.Vector2, speed: rl.Vector2, radius: f32 };
+const Brick = struct { position: rl.Vector2, active: bool };
 
-const World = struct { player: Player, ball: Ball, remaining_lives: u32 };
+const World = struct { player: Player, ball: Ball, remaining_lives: u32, bricks: []Brick, allocator: Allocator };
 
 const playerSize = rl.Vector2.init(200, 25);
 
 const screenWidth = 800;
 const screenHeight = 450;
+const brickCols = 10;
+const brickRows = 5;
+const brickWidth = screenWidth / brickCols;
+const brickHeight = 20;
+const brickSize = rl.Vector2.init(brickWidth, brickHeight);
 
 const ballRadius = 10;
 
 pub fn main() anyerror!void {
-    var world = init_world(screenHeight, screenWidth);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer {
+        const deinit_status = gpa.deinit();
+        // Check for leaks
+        if (deinit_status == .leak) @panic("Memory leak detected!");
+    }
+
+    var world = try init_world(screenHeight, screenWidth, allocator);
+    defer world.allocator.free(world.bricks);
 
     rl.initWindow(screenWidth, screenHeight, "Zig BreakOut");
     defer rl.closeWindow();
@@ -45,6 +62,9 @@ pub fn main() anyerror!void {
 
         draw_player(world.player);
         draw_ball(world.ball);
+        for (world.bricks) |brick| {
+            draw_brick(brick);
+        }
     }
 }
 
@@ -128,14 +148,20 @@ fn update_ball(ball: *Ball, dt: f32) void {
     ball.position.y += ball.speed.y * dt;
 }
 
-fn init_world(height: i32, width: i32) World {
+fn init_world(height: i32, width: i32, allocator: Allocator) !World {
     const playerXOffset = playerSize.x / 2;
     const playerYOffset = playerSize.y / 2;
     const ball_x, const ball_y = ball_starting_position(height, width);
+
+    // Allocate bricks on the heap
+    const bricks = try init_bricks(allocator);
+
     return World{
         .player = init_player((@as(f32, @floatFromInt(width)) / 2.0) - playerXOffset, (@as(f32, @floatFromInt(height)) / 1.25) - playerYOffset),
         .ball = init_ball(ball_x, ball_y),
         .remaining_lives = 3,
+        .bricks = bricks,
+        .allocator = allocator,
     };
 }
 
@@ -161,6 +187,22 @@ fn init_player(x: f32, y: f32) Player {
     return Player{ .position = position, .size = size, .speed = speed };
 }
 
+fn init_bricks(allocator: Allocator) ![]Brick {
+    var bricks = try allocator.alloc(Brick, brickCols * brickRows);
+
+    for (0..brickRows) |row| {
+        for (0..brickCols) |col| {
+            const x = col * brickWidth;
+            const y = row * brickHeight;
+            const position = rl.Vector2.init(@as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)));
+            const index = row * brickCols + col;
+            debug_print_vec("brick ", position);
+            bricks[index] = Brick{ .position = position, .active = true };
+        }
+    }
+    return bricks;
+}
+
 fn debug_print_vec(name: []const u8, vec: rl.Vector2) void {
     const x = vec.x;
     const y = vec.y;
@@ -173,4 +215,16 @@ fn draw_player(player: Player) void {
 
 fn draw_ball(ball: Ball) void {
     rl.drawCircleV(ball.position, ball.radius, rl.Color.blue);
+}
+
+fn draw_brick(brick: Brick) void {
+    if (!brick.active) {
+        return;
+    }
+    debug_print_vec("drawing brick at", brick.position);
+
+    // Draw the brick body
+    rl.drawRectangleV(brick.position, brickSize, rl.Color.green);
+    // Draw black boundary around the brick (using standard drawRectangleLines)
+    rl.drawRectangleLines(@intFromFloat(brick.position.x), @intFromFloat(brick.position.y), @intFromFloat(brickSize.x), @intFromFloat(brickSize.y), rl.Color.black);
 }
