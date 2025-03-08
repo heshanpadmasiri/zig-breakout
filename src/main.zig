@@ -8,7 +8,14 @@ const Player = struct { position: rl.Vector2, speed: rl.Vector2, size: rl.Vector
 const Ball = struct { position: rl.Vector2, speed: rl.Vector2, radius: f32 };
 const Brick = struct { position: rl.Vector2, active: bool };
 
-const World = struct { player: Player, ball: Ball, remaining_lives: u32, bricks: []Brick, allocator: Allocator };
+const World = struct {
+    player: Player,
+    ball: Ball,
+    bricks: []Brick,
+    allocator: Allocator,
+    remaining_lives: u32,
+    remaining_bricks: u32,
+};
 
 const playerSize = rl.Vector2.init(200, 25);
 
@@ -38,8 +45,12 @@ pub fn main() anyerror!void {
     defer rl.closeWindow();
 
     rl.setTargetFPS(60);
+    var game_over = false;
+    var game_won = false;
     while (!rl.windowShouldClose()) {
-        if (world.remaining_lives > 0) {
+        game_over = world.remaining_lives == 0;
+        game_won = world.remaining_bricks == 0;
+        if (!(game_over or game_won)) {
             if (rl.isKeyDown(rl.KeyboardKey.l)) {
                 move_player_right(&world.player);
             } else if (rl.isKeyDown(rl.KeyboardKey.h)) {
@@ -55,9 +66,11 @@ pub fn main() anyerror!void {
         defer rl.endDrawing();
 
         rl.clearBackground(rl.Color.white);
-        rl.drawText(rl.textFormat("Remaining lives: %02i", .{world.remaining_lives}), 200, 80, 20, rl.Color.black);
-        if (world.remaining_lives == 0) {
+        rl.drawText(rl.textFormat("Remaining lives: %02i", .{world.remaining_lives}), 200, 180, 20, rl.Color.black);
+        if (game_over) {
             rl.drawText("Game Over", 200, 200, 20, rl.Color.red);
+        } else if (game_won) {
+            rl.drawText("You Won!", 200, 200, 20, rl.Color.green);
         }
 
         draw_player(world.player);
@@ -81,15 +94,33 @@ fn stop_player(player: *Player) void {
 }
 
 fn update_world(world: *World, dt: f32) void {
-    // TODO: do any collision detection logic and update the speed of stuff
     handle_player_boundaries(&world.player, screenWidth);
     handle_ball_player_collisions(&world.ball, &world.player);
+    for (world.bricks) |*brick| {
+        handle_ball_brick_collisions(&world.ball, brick);
+    }
     world.ball = handle_ball_boundaries(world, &world.ball, screenWidth, screenHeight);
     if (world.remaining_lives == 0) {
         return;
     }
     update_player(&world.player, dt);
     update_ball(&world.ball, dt);
+}
+
+fn handle_ball_brick_collisions(ball: *Ball, brick: *Brick) void {
+    if (!brick.active) {
+        return;
+    }
+    const ball_x = ball.position.x;
+    const ball_y = ball.position.y;
+    const brick_x = brick.position.x;
+    const brick_y = brick.position.y;
+    if (ball_y + ball.radius >= brick_y and ball_y - ball.radius <= brick_y + brickSize.y) {
+        if (ball_x + ball.radius >= brick_x and ball_x - ball.radius <= brick_x + brickSize.x) {
+            ball.speed.y = -ball.speed.y;
+            brick.active = false;
+        }
+    }
 }
 
 fn handle_ball_player_collisions(ball: *Ball, player: *Player) void {
@@ -162,6 +193,7 @@ fn init_world(height: i32, width: i32, allocator: Allocator) !World {
         .remaining_lives = 3,
         .bricks = bricks,
         .allocator = allocator,
+        .remaining_bricks = brickCols * brickRows,
     };
 }
 
@@ -221,8 +253,6 @@ fn draw_brick(brick: Brick) void {
     if (!brick.active) {
         return;
     }
-    debug_print_vec("drawing brick at", brick.position);
-
     // Draw the brick body
     rl.drawRectangleV(brick.position, brickSize, rl.Color.green);
     // Draw black boundary around the brick (using standard drawRectangleLines)
