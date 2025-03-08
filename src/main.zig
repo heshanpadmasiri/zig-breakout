@@ -50,6 +50,14 @@ pub fn main() anyerror!void {
     while (!rl.windowShouldClose()) {
         game_over = world.remaining_lives == 0;
         game_won = world.remaining_bricks == 0;
+
+        if (rl.isKeyPressed(rl.KeyboardKey.r)) {
+            world.allocator.free(world.bricks);
+            world = try init_world(screenHeight, screenWidth, allocator);
+            game_over = false;
+            game_won = false;
+        }
+
         if (!(game_over or game_won)) {
             if (rl.isKeyDown(rl.KeyboardKey.l)) {
                 move_player_right(&world.player);
