@@ -56,9 +56,25 @@ fn stop_player(player: *Player) void {
 fn update_world(world: *World, dt: f32) void {
     // TODO: do any collision detection logic and update the speed of stuff
     handle_player_boundaries(&world.player, screenWidth);
+    handle_ball_player_collisions(&world.ball, &world.player);
     world.ball = handle_ball_boundaries(&world.ball, screenWidth, screenHeight);
     update_player(&world.player, dt);
     update_ball(&world.ball, dt);
+}
+
+fn handle_ball_player_collisions(ball: *Ball, player: *Player) void {
+    const ball_x = ball.position.x;
+    const ball_y = ball.position.y;
+    const player_x = player.position.x;
+    const player_y = player.position.y;
+    const player_width = player.size.x;
+    const player_height = player.size.y;
+    if (ball_y + ball.radius >= player_y and ball_y - ball.radius <= player_y + player_height) {
+        if (ball_x + ball.radius >= player_x and ball_x - ball.radius <= player_x + player_width) {
+            ball.speed.y = -ball.speed.y;
+            ball.speed.x += player.speed.x;
+        }
+    }
 }
 
 fn handle_ball_boundaries(ball: *Ball, width: i32, height: i32) Ball {
