@@ -46,9 +46,9 @@ jobs:
       - name: Build for ${{ matrix.target }}
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            zig build -Drelease-safe=true -Dtarget=${{ matrix.target }}
+            zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
           else
-            zig build -Drelease-safe=true -Dtarget=${{ matrix.target }}
+            zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
           fi
         shell: bash
 
