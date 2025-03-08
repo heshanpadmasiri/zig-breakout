@@ -56,8 +56,29 @@ fn stop_player(player: *Player) void {
 fn update_world(world: *World, dt: f32) void {
     // TODO: do any collision detection logic and update the speed of stuff
     handle_player_boundaries(&world.player, screenWidth);
+    world.ball = handle_ball_boundaries(&world.ball, screenWidth, screenHeight);
     update_player(&world.player, dt);
     update_ball(&world.ball, dt);
+}
+
+fn handle_ball_boundaries(ball: *Ball, width: i32, height: i32) Ball {
+    if (ball.position.y >= @as(f32, @floatFromInt(height))) {
+        const ball_x, const ball_y = ball_starting_position(height, width);
+        // TODO: how does the old ball get deallocated?
+        return init_ball(ball_x, ball_y);
+    }
+    if (ball.position.x - ball.radius <= 0 and ball.speed.x < 0) {
+        ball.position.x = ball.radius;
+        ball.speed.x = -ball.speed.x;
+    } else if (ball.position.x + ball.radius >= @as(f32, @floatFromInt(width)) and ball.speed.x > 0) {
+        ball.position.x = @as(f32, @floatFromInt(width)) - ball.radius;
+        ball.speed.x = -ball.speed.x;
+    }
+    if (ball.position.y - ball.radius <= 0 and ball.speed.y < 0) {
+        ball.position.y = ball.radius;
+        ball.speed.y = -ball.speed.y;
+    }
+    return ball.*;
 }
 
 fn handle_player_boundaries(player: *Player, width: i32) void {
@@ -83,7 +104,14 @@ fn update_ball(ball: *Ball, dt: f32) void {
 fn init_world(height: i32, width: i32) World {
     const playerXOffset = playerSize.x / 2;
     const playerYOffset = playerSize.y / 2;
-    return World{ .player = init_player((@as(f32, @floatFromInt(width)) / 2.0) - playerXOffset, (@as(f32, @floatFromInt(height)) / 1.25) - playerYOffset), .ball = init_ball((@as(f32, @floatFromInt(width)) / 2.0) - ballRadius, (@as(f32, @floatFromInt(height)) / 2) - ballRadius) };
+    const ball_x, const ball_y = ball_starting_position(height, width);
+    return World{ .player = init_player((@as(f32, @floatFromInt(width)) / 2.0) - playerXOffset, (@as(f32, @floatFromInt(height)) / 1.25) - playerYOffset), .ball = init_ball(ball_x, ball_y) };
+}
+
+fn ball_starting_position(height: i32, width: i32) [2]f32 {
+    const x = (@as(f32, @floatFromInt(width)) / 2.0) - ballRadius;
+    const y = (@as(f32, @floatFromInt(height)) / 2) - ballRadius;
+    return .{ x, y };
 }
 
 fn init_ball(x: f32, y: f32) Ball {
