@@ -1,6 +1,8 @@
 # Zig breakout
 A simple implementation of [breakout](https://en.wikipedia.org/wiki/Breakout_(video_game)) in zig
 
+[WASM Demo](https://heshanpadmasiri.github.io/zig-breakout/)
+
 # Acknowledgement
 This game is made possible thanks to fallowing wonderful open source projects
 
