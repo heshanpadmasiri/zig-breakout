@@ -1,6 +1,5 @@
 const rl = @import("raylib");
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 
 // FIXME: try to use a packed struct and treat all objects as same
 // -- this will require Vecs to be pointers
@@ -11,10 +10,11 @@ const Brick = struct { position: rl.Vector2, active: bool };
 const World = struct {
     player: Player,
     ball: Ball,
-    bricks: []Brick,
-    allocator: Allocator,
     remaining_lives: u32,
     remaining_bricks: u32,
+    height: u32,
+    width: u32,
+    bricks: [nBricks]Brick,
 };
 
 const playerSize = rl.Vector2.init(200, 25);
@@ -23,96 +23,126 @@ const screenWidth = 800;
 const screenHeight = 450;
 const brickCols = 10;
 const brickRows = 5;
+const nBricks = brickCols * brickRows;
 const brickWidth = screenWidth / brickCols;
 const brickHeight = 20;
 const brickSize = rl.Vector2.init(brickWidth, brickHeight);
 
 const ballRadius = 10;
 
+var world = init_world(screenHeight, screenWidth);
+
 pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer {
-        const deinit_status = gpa.deinit();
-        // Check for leaks
-        if (deinit_status == .leak) @panic("Memory leak detected!");
-    }
-
-    var world = try init_world(screenHeight, screenWidth, allocator);
-    defer world.allocator.free(world.bricks);
-
     rl.initWindow(screenWidth, screenHeight, "Zig BreakOut");
     defer rl.closeWindow();
 
     rl.setTargetFPS(60);
-    var game_over = false;
-    var game_won = false;
+    const world_ptr = &world;
     while (!rl.windowShouldClose()) {
-        game_over = world.remaining_lives == 0;
-        game_won = world.remaining_bricks == 0;
-
         if (rl.isKeyPressed(rl.KeyboardKey.r)) {
-            world.allocator.free(world.bricks);
-            world = try init_world(screenHeight, screenWidth, allocator);
-            game_over = false;
-            game_won = false;
+            reset_world(world_ptr);
         }
 
-        if (!(game_over or game_won)) {
-            if (rl.isKeyDown(rl.KeyboardKey.l)) {
-                move_player_right(&world.player);
-            } else if (rl.isKeyDown(rl.KeyboardKey.h)) {
-                move_player_left(&world.player);
-            } else {
-                stop_player(&world.player);
-            }
+        if (should_update_world(world_ptr)) {
+            handle_user_input(world_ptr);
             const dt = rl.getFrameTime();
-            update_world(&world, dt);
+            tick(world_ptr, dt);
         }
-
-        rl.beginDrawing();
-        defer rl.endDrawing();
-
-        rl.clearBackground(rl.Color.white);
-        rl.drawText(rl.textFormat("Remaining lives: %02i", .{world.remaining_lives}), 200, 180, 20, rl.Color.black);
-        if (game_over) {
-            rl.drawText("Game Over", 200, 200, 20, rl.Color.red);
-        } else if (game_won) {
-            rl.drawText("You Won!", 200, 200, 20, rl.Color.green);
-        }
-
-        draw_player(world.player);
-        draw_ball(world.ball);
-        for (world.bricks) |brick| {
-            draw_brick(brick);
-        }
+        draw_game(world_ptr);
     }
 }
 
-fn move_player_left(player: *Player) void {
-    player.speed.x = -200;
-}
+fn reset_world(world_ptr: *World) void {
+    world_ptr.remaining_bricks = nBricks;
+    world_ptr.remaining_lives = 3;
 
-fn move_player_right(player: *Player) void {
-    player.speed.x = 200;
-}
+    const playerX, const playerY = initial_player_position(world_ptr.height, world_ptr.width);
+    world_ptr.player.position.x = playerX;
+    world_ptr.player.position.y = playerY;
+    world_ptr.player.speed.x = 0;
+    world_ptr.player.speed.y = 0;
 
-fn stop_player(player: *Player) void {
-    player.speed.x = 0;
-}
+    const ball_x, const ball_y = ball_starting_position(world_ptr.height, world_ptr.width);
+    world_ptr.ball.position.x = ball_x;
+    world_ptr.ball.position.y = ball_y;
+    world_ptr.ball.speed.x = 0;
+    world_ptr.ball.speed.y = 100;
 
-fn update_world(world: *World, dt: f32) void {
-    handle_player_boundaries(&world.player, screenWidth);
-    handle_ball_player_collisions(&world.ball, &world.player);
-    for (world.bricks) |*brick| {
-        handle_ball_brick_collisions(&world.ball, brick);
+    for (&world_ptr.bricks) |*brick| {
+        brick.active = true;
     }
-    world.ball = handle_ball_boundaries(world, &world.ball, screenWidth, screenHeight);
-    if (world.remaining_lives == 0) {
+}
+
+inline fn move_player_left(world_ptr: *World) void {
+    world_ptr.player.speed.x = -200;
+}
+
+inline fn move_player_right(world_ptr: *World) void {
+    world_ptr.player.speed.x = 200;
+}
+
+inline fn stop_player(world_ptr: *World) void {
+    world_ptr.player.speed.x = 0;
+}
+
+inline fn is_game_over(world_ptr: *World) bool {
+    return world_ptr.remaining_lives == 0;
+}
+
+inline fn is_game_won(world_ptr: *World) bool {
+    return world_ptr.remaining_bricks == 0;
+}
+
+inline fn should_update_world(world_ptr: *World) bool {
+    return !is_game_over(world_ptr) and !is_game_won(world_ptr);
+}
+
+fn handle_user_input(world_ptr: *World) void {
+    if (rl.isKeyDown(rl.KeyboardKey.l)) {
+        move_player_right(world_ptr);
+    } else if (rl.isKeyDown(rl.KeyboardKey.h)) {
+        move_player_left(world_ptr);
+    } else {
+        stop_player(world_ptr);
+    }
+}
+
+fn draw_game(world_ptr: *World) void {
+    rl.beginDrawing();
+    defer rl.endDrawing();
+
+    rl.clearBackground(rl.Color.white);
+    rl.drawText(rl.textFormat("Remaining lives: %02i", .{world_ptr.remaining_lives}), 200, 180, 20, rl.Color.black);
+    if (is_game_over(world_ptr)) {
+        rl.drawText("Game Over", 200, 200, 20, rl.Color.red);
+    } else if (is_game_won(world_ptr)) {
+        rl.drawText("You Won!", 200, 200, 20, rl.Color.green);
+    }
+
+    draw_player(world_ptr.player);
+    draw_ball(world_ptr.ball);
+    for (world_ptr.bricks) |brick| {
+        draw_brick(brick);
+    }
+}
+
+fn tick(world_ptr: *World, dt: f32) void {
+    handle_user_input(world_ptr);
+    update_world(world_ptr, dt);
+}
+
+fn update_world(world_ptr: *World, dt: f32) void {
+    handle_player_boundaries(&world_ptr.player, world_ptr.width);
+    handle_ball_player_collisions(&world_ptr.ball, &world.player);
+    for (&world_ptr.bricks) |*brick| {
+        handle_ball_brick_collisions(&world_ptr.ball, brick);
+    }
+    world_ptr.ball = handle_ball_boundaries(world_ptr, &world.ball, world_ptr.width, world_ptr.height);
+    if (world_ptr.remaining_lives == 0) {
         return;
     }
-    update_player(&world.player, dt);
-    update_ball(&world.ball, dt);
+    update_player(&world_ptr.player, dt);
+    update_ball(&world_ptr.ball, dt);
 }
 
 fn handle_ball_brick_collisions(ball: *Ball, brick: *Brick) void {
@@ -146,11 +176,11 @@ fn handle_ball_player_collisions(ball: *Ball, player: *Player) void {
     }
 }
 
-fn handle_ball_boundaries(world: *World, ball: *Ball, width: i32, height: i32) Ball {
+fn handle_ball_boundaries(world_ptr: *World, ball: *Ball, width: u32, height: u32) Ball {
     if (ball.position.y >= @as(f32, @floatFromInt(height))) {
         const ball_x, const ball_y = ball_starting_position(height, width);
         // TODO: how does the old ball get deallocated?
-        world.remaining_lives -= 1;
+        world_ptr.remaining_lives -= 1;
         return init_ball(ball_x, ball_y);
     }
     if (ball.position.x - ball.radius <= 0 and ball.speed.x < 0) {
@@ -167,7 +197,7 @@ fn handle_ball_boundaries(world: *World, ball: *Ball, width: i32, height: i32) B
     return ball.*;
 }
 
-fn handle_player_boundaries(player: *Player, width: i32) void {
+fn handle_player_boundaries(player: *Player, width: u32) void {
     if (player.position.x <= 0 and player.speed.x < 0) {
         player.position.x = 0;
         player.speed.x = 0;
@@ -187,25 +217,31 @@ fn update_ball(ball: *Ball, dt: f32) void {
     ball.position.y += ball.speed.y * dt;
 }
 
-fn init_world(height: i32, width: i32, allocator: Allocator) !World {
-    const playerXOffset = playerSize.x / 2;
-    const playerYOffset = playerSize.y / 2;
+fn init_world(height: u32, width: u32) World {
     const ball_x, const ball_y = ball_starting_position(height, width);
 
-    // Allocate bricks on the heap
-    const bricks = try init_bricks(allocator);
-
+    const bricks = init_bricks();
+    const playerX, const playerY = initial_player_position(height, width);
     return World{
-        .player = init_player((@as(f32, @floatFromInt(width)) / 2.0) - playerXOffset, (@as(f32, @floatFromInt(height)) / 1.25) - playerYOffset),
+        .player = init_player(playerX, playerY),
         .ball = init_ball(ball_x, ball_y),
         .remaining_lives = 3,
         .bricks = bricks,
-        .allocator = allocator,
         .remaining_bricks = brickCols * brickRows,
+        .height = height,
+        .width = width,
     };
 }
 
-fn ball_starting_position(height: i32, width: i32) [2]f32 {
+fn initial_player_position(height: u32, width: u32) [2]f32 {
+    const playerXOffset = playerSize.x / 2;
+    const playerYOffset = playerSize.y / 2;
+    const x = (@as(f32, @floatFromInt(width)) / 2.0) - playerXOffset;
+    const y = (@as(f32, @floatFromInt(height)) / 1.25) - playerYOffset;
+    return .{ x, y };
+}
+
+fn ball_starting_position(height: u32, width: u32) [2]f32 {
     const x = (@as(f32, @floatFromInt(width)) / 2.0) - ballRadius;
     const y = (@as(f32, @floatFromInt(height)) / 2) - ballRadius;
     return .{ x, y };
@@ -213,7 +249,6 @@ fn ball_starting_position(height: i32, width: i32) [2]f32 {
 
 fn init_ball(x: f32, y: f32) Ball {
     const position = rl.Vector2.init(x, y);
-    // FIXME:
     const speed = rl.Vector2.init(0, 100);
     const radius = @as(f32, ballRadius);
     return Ball{ .position = position, .speed = speed, .radius = radius };
@@ -221,14 +256,13 @@ fn init_ball(x: f32, y: f32) Ball {
 
 fn init_player(x: f32, y: f32) Player {
     const position = rl.Vector2.init(x, y);
-    debug_print_vec("start position", position);
     const size = playerSize;
-    const speed = rl.Vector2.zero();
+    const speed = rl.Vector2.init(0, 0);
     return Player{ .position = position, .size = size, .speed = speed };
 }
 
-fn init_bricks(allocator: Allocator) ![]Brick {
-    var bricks = try allocator.alloc(Brick, brickCols * brickRows);
+fn init_bricks() [nBricks]Brick {
+    var bricks: [nBricks]Brick = undefined;
 
     for (0..brickRows) |row| {
         for (0..brickCols) |col| {
@@ -236,17 +270,10 @@ fn init_bricks(allocator: Allocator) ![]Brick {
             const y = row * brickHeight;
             const position = rl.Vector2.init(@as(f32, @floatFromInt(x)), @as(f32, @floatFromInt(y)));
             const index = row * brickCols + col;
-            debug_print_vec("brick ", position);
             bricks[index] = Brick{ .position = position, .active = true };
         }
     }
     return bricks;
-}
-
-fn debug_print_vec(name: []const u8, vec: rl.Vector2) void {
-    const x = vec.x;
-    const y = vec.y;
-    @import("std").debug.print("{s} x: {d}, y: {d}\n", .{ name, x, y });
 }
 
 fn draw_player(player: Player) void {
